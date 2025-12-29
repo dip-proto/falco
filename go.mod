@@ -20,6 +20,7 @@ require (
 
 require (
 	github.com/c-bata/go-prompt v0.2.6
+	github.com/corazawaf/libinjection-go v0.1.2
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/gdamore/tcell/v2 v2.6.0
 	github.com/go-yaml/yaml v2.1.0+incompatible
