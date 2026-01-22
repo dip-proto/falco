@@ -1,173 +1,160 @@
 package shared
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/base64"
-	"io"
-	"strings"
+	"errors"
 )
 
 var nullByte = []byte{0}
 
-// Stop and return the point of Null-Byte found
-func terminateNullByte(decoded []byte) []byte {
-	before, _, _ := bytes.Cut(decoded, nullByte)
-	return before
+var ErrInvalidBase64 = errors.New("invalid base64 input")
+
+func terminateNullByte(decoded []byte) ([]byte, bool) {
+	before, _, found := bytes.Cut(decoded, nullByte)
+	return before, found
 }
 
-// Even stopping decoding, we need to padding sign to success golang base64 decoding
-func padding(b []byte) []byte {
-	for len(b)%4 > 0 {
-		b = append(b, 0x3D)
+func addPadding(s string) string {
+	switch len(s) % 4 {
+	case 2:
+		return s + "=="
+	case 3:
+		return s + "="
+	default:
+		return s
 	}
-	return b
 }
 
-// Remove invalid characters for standard encoding
-func removeInvalidCharactersStd(src string) string {
-	removed := new(bytes.Buffer)
-	reader := bufio.NewReader(strings.NewReader(src))
+func isValidBase64Char(b byte) bool {
+	return (b >= 'A' && b <= 'Z') ||
+		(b >= 'a' && b <= 'z') ||
+		(b >= '0' && b <= '9') ||
+		b == '+' || b == '/' || b == '='
+}
 
-	for {
-		b, err := reader.ReadByte()
-		if err == io.EOF {
-			break
-		}
-		switch {
-		case b >= 0x41 && b <= 0x5A: // A-Z
-			removed.WriteByte(b)
-		case b >= 0x61 && b <= 0x7A: // a-z
-			removed.WriteByte(b)
-		case b >= 0x30 && b <= 0x39: // 0-9
-			removed.WriteByte(b)
-		case b == 0x2B || b == 0x2F: // + or /
-			removed.WriteByte(b)
-		case b == 0x3D: // =
-			// If "=" sign found, next byte must also be "="
-			if peek, err := reader.Peek(1); err == nil && peek[0] == 0x3D {
-				removed.WriteByte(b)
-				removed.WriteByte(b)
-				// skip next "=" character
-				reader.ReadByte() // nolint:errcheck
-				continue
-			}
-			// Otherwise, treat as invalid character, stop decoding
-			return string(padding(removed.Bytes()))
-		default:
-			// Invalid characters, skip it
+func isValidBase64UrlChar(b byte) bool {
+	return (b >= 'A' && b <= 'Z') ||
+		(b >= 'a' && b <= 'z') ||
+		(b >= '0' && b <= '9') ||
+		b == '-' || b == '_' || b == '='
+}
+
+func isValidBase64UrlNoPadChar(b byte) bool {
+	return (b >= 'A' && b <= 'Z') ||
+		(b >= 'a' && b <= 'z') ||
+		(b >= '0' && b <= '9') ||
+		b == '-' || b == '_'
+}
+
+func validateBase64Std(src string) error {
+	for i := 0; i < len(src); i++ {
+		if !isValidBase64Char(src[i]) {
+			return ErrInvalidBase64
 		}
 	}
-
-	return string(padding(removed.Bytes()))
+	return nil
 }
 
-// Remove invalid characters for base64-url encoding
-func removeInvalidCharactersUrl(src string) string {
-	removed := new(bytes.Buffer)
-	r := bufio.NewReader(strings.NewReader(src))
-
-	for {
-		b, err := r.ReadByte()
-		if err == io.EOF {
-			break
-		}
-		switch {
-		case b >= 0x41 && b <= 0x5A: // A-Z
-			removed.WriteByte(b)
-		case b >= 0x61 && b <= 0x7A: // a-z
-			removed.WriteByte(b)
-		case b >= 0x30 && b <= 0x39: // 0-9
-			removed.WriteByte(b)
-		case b == 0x2B: // + should replace to -
-			removed.WriteByte(0x2D)
-		case b == 0x2F: // / should replace to _
-			removed.WriteByte(0x5F)
-		case b == 0x2D || b == 0x5F: // + or /
-			removed.WriteByte(b)
-		case b == 0x3D: // =
-			// If "=" sign found, next byte must also be "="
-			if peek, err := r.Peek(1); err == nil && peek[0] == 0x3D {
-				removed.WriteByte(b)
-				removed.WriteByte(b)
-				// skip next "=" character
-				r.ReadByte() // nolint:errcheck
-				continue
-			}
-			// Otherwise, treat as invalid character, stop decoding
-			return string(padding(removed.Bytes()))
-		default:
-			// Invalid characters, skip it
+func validateBase64Url(src string) error {
+	for i := 0; i < len(src); i++ {
+		if !isValidBase64UrlChar(src[i]) {
+			return ErrInvalidBase64
 		}
 	}
-
-	return string(padding(removed.Bytes()))
+	return nil
 }
 
-// Remove invalid characters for base64-url nopadding encoding
-func removeInvalidCharactersUrlNoPad(src string) string {
-	removed := new(bytes.Buffer)
-	r := bufio.NewReader(strings.NewReader(src))
-
-	for {
-		b, err := r.ReadByte()
-		if err == io.EOF {
-			break
-		}
-		switch {
-		case b >= 0x41 && b <= 0x5A: // A-Z
-			removed.WriteByte(b)
-		case b >= 0x61 && b <= 0x7A: // a-z
-			removed.WriteByte(b)
-		case b >= 0x30 && b <= 0x39: // 0-9
-			removed.WriteByte(b)
-		case b == 0x2B: // + should replace to -
-			removed.WriteByte(0x2D)
-		case b == 0x2F: // / should replace to _
-			removed.WriteByte(0x5F)
-		case b == 0x2D || b == 0x5F: // + or /
-			removed.WriteByte(b)
-		default:
-			// Note: the "=" sign also treats as invalid character
-			// Invalid characters, skip it
+func validateBase64UrlNoPad(src string) error {
+	for i := 0; i < len(src); i++ {
+		if !isValidBase64UrlNoPadChar(src[i]) {
+			return ErrInvalidBase64
 		}
 	}
-
-	return removed.String()
+	return nil
 }
 
-// Standard base64 encoding
 func Base64Encode(src string) string {
 	return base64.StdEncoding.EncodeToString([]byte(src))
 }
 
-// base64-url encoding
 func Base64UrlEncode(src string) string {
 	return base64.URLEncoding.EncodeToString([]byte(src))
 }
 
-// base64-url nopadding encoding
 func Base64UrlEncodeNoPad(src string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(src))
 }
 
-// Standard base64 decoding
-func Base64Decode(src string) string {
-	removed := removeInvalidCharactersStd(src)
-	dec, _ := base64.StdEncoding.DecodeString(removed) // nolint:errcheck
-	return string(terminateNullByte(dec))
+type Base64DecodeResult struct {
+	Value              string
+	HadEmbeddedNulByte bool
 }
 
-// base64-url decoding
-func Base64UrlDecode(src string) string {
-	removed := removeInvalidCharactersUrl(src)
-	dec, _ := base64.URLEncoding.DecodeString(removed) // nolint:errcheck
-	return string(terminateNullByte(dec))
+func Base64Decode(src string) (Base64DecodeResult, error) {
+	if src == "" {
+		return Base64DecodeResult{Value: ""}, nil
+	}
+
+	if err := validateBase64Std(src); err != nil {
+		return Base64DecodeResult{}, err
+	}
+
+	dec, err := base64.StdEncoding.DecodeString(src)
+	if err != nil {
+		return Base64DecodeResult{}, ErrInvalidBase64
+	}
+
+	result, hadNull := terminateNullByte(dec)
+	return Base64DecodeResult{
+		Value:              string(result),
+		HadEmbeddedNulByte: hadNull,
+	}, nil
 }
 
-// base64-url nopadding decoding
-func Base64UrlDecodeNoPad(src string) string {
-	removed := removeInvalidCharactersUrlNoPad(src)
-	dec, _ := base64.RawURLEncoding.DecodeString(removed) // nolint:errcheck
-	return string(terminateNullByte(dec))
+func Base64UrlDecode(src string) (Base64DecodeResult, error) {
+	if src == "" {
+		return Base64DecodeResult{Value: ""}, nil
+	}
+
+	if err := validateBase64Url(src); err != nil {
+		return Base64DecodeResult{}, err
+	}
+
+	dec, err := base64.URLEncoding.DecodeString(src)
+	if err != nil {
+		return Base64DecodeResult{}, ErrInvalidBase64
+	}
+
+	result, hadNull := terminateNullByte(dec)
+	return Base64DecodeResult{
+		Value:              string(result),
+		HadEmbeddedNulByte: hadNull,
+	}, nil
+}
+
+func Base64UrlDecodeNoPad(src string) (Base64DecodeResult, error) {
+	if src == "" {
+		return Base64DecodeResult{Value: ""}, nil
+	}
+
+	if err := validateBase64UrlNoPad(src); err != nil {
+		return Base64DecodeResult{}, err
+	}
+
+	padded := addPadding(src)
+
+	dec, err := base64.RawURLEncoding.DecodeString(padded)
+	if err != nil {
+		dec, err = base64.RawURLEncoding.DecodeString(src)
+		if err != nil {
+			return Base64DecodeResult{}, ErrInvalidBase64
+		}
+	}
+
+	result, hadNull := terminateNullByte(dec)
+	return Base64DecodeResult{
+		Value:              string(result),
+		HadEmbeddedNulByte: hadNull,
+	}, nil
 }

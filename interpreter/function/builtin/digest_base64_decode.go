@@ -37,7 +37,13 @@ func Digest_base64_decode(ctx *context.Context, args ...value.Value) (value.Valu
 
 	input := value.Unwrap[*value.String](args[0])
 
+	result, err := shared.Base64Decode(input.Value)
+	if err != nil {
+		ctx.FastlyError = &value.String{Value: "EINVAL"}
+		return value.Null, nil
+	}
+
 	return &value.String{
-		Value: shared.Base64Decode(input.Value),
+		Value: result.Value,
 	}, nil
 }

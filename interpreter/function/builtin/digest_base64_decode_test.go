@@ -14,64 +14,88 @@ import (
 // - STRING
 // Reference: https://developer.fastly.com/reference/vcl/functions/cryptographic/digest-base64-decode/
 func Test_Digest_base64_decode(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		expect string
-	}{
-		{
-			name:   "Fastly example",
-			input:  "zprOsc67z47PgiDOv8+Bzq/Pg86xz4TOtQ==",
-			expect: "Καλώς ορίσατε",
-		},
-		{
-			name:   "Includes nullbyte",
-			input:  "c29tZSBkYXRhIHdpdGggACBhbmQg77u/",
-			expect: "some data with ",
-		},
-		{
-			name:   "Skip invalid characters",
-			input:  "QU&|*#()JDRA==",
-			expect: "ABCD",
-		},
-		{
-			name:   "Stop at padding sign",
-			input:  "QU&==|*#()JDRA==",
-			expect: "A",
-		},
-		{
-			name:   "Stop at single equal sign",
-			input:  "QU&=|*#()JDRA==",
-			expect: "A",
-		},
-		{
-			name:   "Treat padding - keep padding characters",
-			input:  "YWJjZB==",
-			expect: "abcd",
-		},
-		{
-			// https://github.com/ysugimoto/falco/issues/431
-			name:   "issue-431",
-			input:  "Zm9vYmFyVGVzdAo=",
-			expect: "foobarTest\n",
-		},
-	}
+	t.Run("valid inputs", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			input  string
+			expect string
+		}{
+			{
+				name:   "Fastly example",
+				input:  "zprOsc67z47PgiDOv8+Bzq/Pg86xz4TOtQ==",
+				expect: "Καλώς ορίσατε",
+			},
+			{
+				name:   "Includes nullbyte - truncates at null",
+				input:  "c29tZSBkYXRhIHdpdGggACBhbmQg77u/",
+				expect: "some data with ",
+			},
+			{
+				name:   "Valid padding",
+				input:  "YWJjZB==",
+				expect: "abcd",
+			},
+			{
+				name:   "issue-431",
+				input:  "Zm9vYmFyVGVzdAo=",
+				expect: "foobarTest\n",
+			},
+		}
 
-	for _, tt := range tests {
-		ret, err := Digest_base64_decode(
-			&context.Context{},
-			&value.String{Value: tt.input},
-		)
+		for _, tt := range tests {
+			ret, err := Digest_base64_decode(
+				&context.Context{},
+				&value.String{Value: tt.input},
+			)
 
-		if err != nil {
-			t.Errorf("[%s] Unexpected error: %s", tt.name, err)
+			if err != nil {
+				t.Errorf("[%s] Unexpected error: %s", tt.name, err)
+			}
+			if ret.Type() != value.StringType {
+				t.Errorf("[%s] Unexpected return type, expect=STRING, got=%s", tt.name, ret.Type())
+			}
+			v := value.Unwrap[*value.String](ret)
+			if v.Value != tt.expect {
+				t.Errorf("[%s] return value unmatch, expect=%s, got=%s", tt.name, tt.expect, v.Value)
+			}
 		}
-		if ret.Type() != value.StringType {
-			t.Errorf("[%s] Unexpected return type, expect=STRING, got=%s", tt.name, ret.Type())
+	})
+
+	t.Run("invalid inputs return NULL", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input string
+		}{
+			{
+				name:  "Invalid characters",
+				input: "QU&|*#()JDRA==",
+			},
+			{
+				name:  "Invalid with padding",
+				input: "QU&==|*#()JDRA==",
+			},
+			{
+				name:  "Invalid single equal",
+				input: "QU&=|*#()JDRA==",
+			},
 		}
-		v := value.Unwrap[*value.String](ret)
-		if v.Value != tt.expect {
-			t.Errorf("[%s] return value unmatch, expect=%s, got=%s", tt.name, tt.expect, v.Value)
+
+		for _, tt := range tests {
+			ctx := &context.Context{}
+			ret, err := Digest_base64_decode(
+				ctx,
+				&value.String{Value: tt.input},
+			)
+
+			if err != nil {
+				t.Errorf("[%s] Unexpected error: %s", tt.name, err)
+			}
+			if ret != value.Null {
+				t.Errorf("[%s] Expected NULL for invalid input, got=%s", tt.name, ret.Type())
+			}
+			if ctx.FastlyError == nil || ctx.FastlyError.Value != "EINVAL" {
+				t.Errorf("[%s] Expected FastlyError=EINVAL, got=%v", tt.name, ctx.FastlyError)
+			}
 		}
-	}
+	})
 }

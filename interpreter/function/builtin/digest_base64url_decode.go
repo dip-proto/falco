@@ -37,7 +37,13 @@ func Digest_base64url_decode(ctx *context.Context, args ...value.Value) (value.V
 
 	input := value.Unwrap[*value.String](args[0])
 
+	result, err := shared.Base64UrlDecode(input.Value)
+	if err != nil {
+		ctx.FastlyError = &value.String{Value: "EINVAL"}
+		return value.Null, nil
+	}
+
 	return &value.String{
-		Value: shared.Base64UrlDecode(input.Value),
+		Value: result.Value,
 	}, nil
 }
